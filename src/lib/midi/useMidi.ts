@@ -37,6 +37,8 @@ declare global {
       noteOn: (midi: number, velocity?: number) => void
       noteOff: (midi: number) => void
       pedal: (down: boolean) => void
+      /** Pretend a keyboard is connected (tests have no hardware). */
+      plug: (name?: string) => void
     }
   }
 }
@@ -105,7 +107,13 @@ export function useMidi(): MidiCapture {
       else if (cmd === 0xb0 && data[1] === 64) pedal(data[2] >= 64)
     }
 
-    window.__cindy = { noteOn, noteOff, pedal }
+    window.__cindy = {
+      noteOn,
+      noteOff,
+      pedal,
+      plug: (name = 'Test keyboard') =>
+        setInputs((i) => (i.includes(name) ? i : [...i, name])),
+    }
 
     if (!('requestMIDIAccess' in navigator)) {
       setSupported(false)

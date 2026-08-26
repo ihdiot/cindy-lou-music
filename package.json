@@ -12,6 +12,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@spotify/basic-pitch": "^1.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "abcjs": "^6.7.0",
     "react": "^19.2.8",

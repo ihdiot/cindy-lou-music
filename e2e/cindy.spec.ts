@@ -94,6 +94,7 @@ test('live MIDI: letters show while held, Stop engraves what was played', async 
 }) => {
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__cindy === 'object')
+  await page.evaluate(() => window.__cindy!.plug())
 
   await page.getByTestId('start').click()
 
@@ -130,6 +131,7 @@ test('live MIDI: letters show while held, Stop engraves what was played', async 
 test('sustain pedal extends the note, like real notation', async ({ page }) => {
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__cindy === 'object')
+  await page.evaluate(() => window.__cindy!.plug())
   await page.getByTestId('start').click()
 
   await page.evaluate(() => window.__cindy!.pedal(true))
@@ -152,12 +154,66 @@ test('stopping with nothing played is honest — no invented notes', async ({
   page,
 }) => {
   await page.goto('/')
+  await page.waitForFunction(() => typeof window.__cindy === 'object')
+  await page.evaluate(() => window.__cindy!.plug())
   await page.getByTestId('start').click()
   await page.waitForTimeout(300)
   await page.getByTestId('stop').click()
 
   await expect(page.getByTestId('nothing-heard')).toBeVisible()
   await expect(page.locator('[data-testid="staff"]')).toHaveCount(0)
+})
+
+test('microphone path: C D E played as sound comes out as C D E', async ({
+  page,
+}) => {
+  // Real in-browser Basic Pitch run: synthesized piano tones -> the model
+  // (fetched from this same site) -> the same review screen. This is the
+  // path mom's keyboard uses. First run downloads tfjs + the model.
+  test.setTimeout(180_000)
+  await page.goto('/')
+  await page.waitForFunction(
+    () => typeof window.__cindyTranscribeTest === 'function',
+  )
+  await page.evaluate(() =>
+    window.__cindyTranscribeTest!([
+      { midi: 60, start: 0.2, duration: 0.45 },
+      { midi: 62, start: 0.8, duration: 0.45 },
+      { midi: 64, start: 1.4, duration: 0.45 },
+    ]),
+  )
+  await expect(page.locator('[data-testid="staff"] svg').first()).toBeVisible({
+    timeout: 120_000,
+  })
+  const chips = page.locator(
+    '[data-testid="melody-strip"] span[data-hand="treble"]',
+  )
+  await expect(chips).toContainText(['C', 'D', 'E'])
+  await page.screenshot({ path: 'e2e/out/mic-cde.png', fullPage: true })
+})
+
+test('microphone flow: Start opens the mic, level meter runs, Stop reads', async ({
+  page,
+}) => {
+  // No keyboard plugged -> Start takes the listening path (fake mic device).
+  test.setTimeout(180_000)
+  await page.goto('/')
+  await page.getByTestId('start').click()
+
+  // The mic opened: the "I can hear you" meter is on screen.
+  await expect(page.getByTestId('mic-level')).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(1200)
+  await page.getByTestId('stop').click()
+
+  // "Reading your music…" shows, then an honest outcome either way:
+  // the fake device's test tone may or may not contain real notes.
+  await expect(page.getByTestId('reading')).toBeVisible()
+  await expect(
+    page
+      .locator('[data-testid="staff"] svg')
+      .first()
+      .or(page.getByTestId('nothing-heard')),
+  ).toBeVisible({ timeout: 120_000 })
 })
 
 test('songs persist across a reload (IndexedDB bench-notes)', async ({

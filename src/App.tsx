@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMidi } from './lib/midi/useMidi'
+import { useMicCapture } from './lib/audio/useMicCapture'
+import { transcribeAudio } from './lib/audio/transcribe'
+import { synthesize } from './lib/audio/synth'
 import { notesToScore } from './lib/music/pipeline'
 import { scoreToAbc } from './lib/music/abc'
 import type { NoteEvent, SavedSong } from './lib/music/types'
@@ -9,12 +12,16 @@ import { StaffScore } from './components/StaffScore'
 import { MelodyStrip } from './components/MelodyStrip'
 import { SongList } from './components/SongList'
 
-type Phase = 'idle' | 'recording' | 'review' | 'nothing-heard'
+type Phase = 'idle' | 'recording' | 'reading' | 'review' | 'nothing-heard'
 
 declare global {
   interface Window {
     /** Test hook: load a finished recording straight into review. */
     __cindyLoad?: (notes: NoteEvent[], title?: string) => void
+    /** Test hook: synthesize tones, run real audio transcription, review. */
+    __cindyTranscribeTest?: (
+      seq: Array<{ midi: number; start: number; duration: number }>,
+    ) => Promise<void>
   }
 }
 
@@ -32,6 +39,7 @@ function defaultTitle(): string {
 
 export default function App() {
   const midi = useMidi()
+  const mic = useMicCapture()
   const [phase, setPhase] = useState<Phase>('idle')
   const [notes, setNotes] = useState<NoteEvent[]>([])
   const [title, setTitle] = useState(defaultTitle())
@@ -82,18 +90,42 @@ export default function App() {
 
   useEffect(() => {
     window.__cindyLoad = (n, t) => finishRecording(n, t)
+    window.__cindyTranscribeTest = async (seq) => {
+      const notes = await transcribeAudio(synthesize(seq))
+      finishRecording(notes, 'Microphone test')
+    }
     return () => {
       delete window.__cindyLoad
+      delete window.__cindyTranscribeTest
     }
   }, [finishRecording])
 
-  const start = () => {
-    midi.startRecording()
+  // A USB-MIDI keyboard is always preferred; the microphone is the fallback.
+  const usingMidi = midi.inputs.length > 0
+
+  const start = async () => {
+    if (usingMidi) {
+      midi.startRecording()
+      setPhase('recording')
+      return
+    }
+    const ok = await mic.ensureOpen()
+    if (!ok) return // denied — the coach card explains
+    mic.startRecording()
     setPhase('recording')
   }
 
-  const stop = () => {
-    finishRecording(midi.stopRecording())
+  const stop = async () => {
+    if (usingMidi) {
+      finishRecording(midi.stopRecording())
+      return
+    }
+    setPhase('reading')
+    try {
+      finishRecording(await mic.stopRecording())
+    } catch {
+      setPhase('nothing-heard')
+    }
   }
 
   const rename = (t: string) => {
@@ -130,36 +162,36 @@ export default function App() {
         </p>
       </header>
 
-      {/* Piano connection — quiet when good, helpful when not */}
+      {/* Input status — quiet when good, helpful when not */}
       {phase !== 'review' && (
       <div className="no-print mb-6" data-testid="midi-status">
-        {!midi.supported ? (
-          <div className="rounded-2xl border border-berry/30 bg-berry/10 px-5 py-4 text-center">
-            Please open this page in Microsoft Edge — this browser can't hear
-            pianos.
-          </div>
-        ) : midi.blocked ? (
+        {mic.status === 'denied' ? (
           <div className="rounded-2xl border border-berry/30 bg-berry/10 px-5 py-4 text-center">
             <strong>One more step:</strong> click the little padlock next to
-            the web address, switch MIDI to Allow, and reload this page.
+            the web address, switch Microphone to Allow, and reload this
+            page.
           </div>
         ) : connected ? (
           <p className="text-center text-lg italic text-forest/60">
-            &#10003; Your piano is connected
+            &#10003; Your piano is connected by USB — every note lands
+            perfectly
           </p>
         ) : (
           <div className="plate rounded-2xl border border-forest/15 bg-parchment px-8 py-6 shadow-[0_10px_30px_-12px_rgba(29,59,40,0.25)]">
-            <p className="text-2xl font-semibold">Let's hook up your piano</p>
-            <ol className="mt-2 list-decimal space-y-1 pl-6 text-lg text-forest/75">
+            <p className="text-2xl font-semibold">
+              I'll listen while you play
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-6 text-lg text-forest/75">
+              <li>Sit the computer close to the piano, volume up.</li>
+              <li>Tap Start, then choose Allow when the page asks.</li>
               <li>
-                Plug the USB cable into the square plug on the back of the
-                piano, and the flat end into the computer.
+                Clearest results: a cable from the piano's headphone jack to
+                the computer.
               </li>
-              <li>Turn the piano on.</li>
-              <li>If the page asks, choose Allow.</li>
-            </ol>
+            </ul>
             <p className="mt-2 italic text-forest/60">
-              This box disappears the moment I can hear it.
+              Have a USB-MIDI keyboard? Just plug it in — I'll use it
+              automatically.
             </p>
           </div>
         )}
@@ -169,12 +201,29 @@ export default function App() {
       {/* Live letters — press a key, see its name */}
       {phase !== 'review' && (
         <div className="no-print plate rounded-3xl border border-forest/10 bg-parchment shadow-[0_14px_40px_-16px_rgba(29,59,40,0.3)]">
-          <LiveLetters held={midi.held} />
+          <LiveLetters
+            held={
+              usingMidi ? midi.held : mic.midi !== null ? [mic.midi] : []
+            }
+          />
+          {!usingMidi && mic.status === 'ready' && (
+            <div className="px-10 pb-4" aria-hidden>
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-forest/10"
+                data-testid="mic-level"
+              >
+                <div
+                  className="h-full rounded-full bg-brass transition-[width] duration-100"
+                  style={{ width: `${Math.round(mic.level * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* The one big button */}
-      {phase !== 'review' && (
+      {phase !== 'review' && phase !== 'reading' && (
       <div className="no-print mt-8 flex flex-col items-center gap-4">
         {recording ? (
           <>
@@ -209,13 +258,24 @@ export default function App() {
       </div>
       )}
 
+      {phase === 'reading' && (
+        <div
+          className="no-print mx-auto mt-8 flex max-w-xl items-center justify-center gap-3 rounded-2xl border border-forest/15 bg-parchment px-6 py-5 text-center text-xl italic shadow-sm"
+          data-testid="reading"
+        >
+          <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-brass" />
+          Reading your music&hellip;
+        </div>
+      )}
+
       {phase === 'nothing-heard' && (
         <div
           className="no-print mx-auto mt-8 max-w-xl rounded-2xl border border-forest/15 bg-white/70 px-6 py-5 text-center text-lg shadow-sm"
           data-testid="nothing-heard"
         >
-          I didn't hear any notes that time. Press a key and watch for its
-          letter above — if it shows up, tap Start and try again.
+          I didn't hear any notes that time. Turn the piano's volume up,
+          press a key and watch for its letter above — if it shows up, tap
+          Start and try again.
         </div>
       )}
 
