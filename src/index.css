@@ -1,0 +1,116 @@
+@import 'tailwindcss';
+
+/* Embedded fonts — inlined into the single file, work offline. */
+@font-face {
+  font-family: 'Great Vibes';
+  src: url('./assets/fonts/great-vibes.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('./assets/fonts/cormorant.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --color-cream: #f5efdf;
+  --color-parchment: #fdfaf0;
+  --color-forest: #1d3b28;
+  --color-forest-light: #2d5a3d;
+  --color-berry: #8e2f2b;
+  --color-brass: #a5874b;
+  --color-brass-light: #c5a970;
+  --font-script: 'Great Vibes', cursive;
+  --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+}
+
+html {
+  background:
+    radial-gradient(
+      ellipse 120% 90% at 50% -10%,
+      rgb(253 250 240 / 0.9),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 140% 100% at 50% 110%,
+      rgb(29 59 40 / 0.08),
+      transparent 55%
+    ),
+    var(--color-cream);
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+}
+
+/* Engraved-plate frame: a hairline brass inner border on cards. */
+.plate {
+  position: relative;
+}
+.plate::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgb(165 135 75 / 0.35);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Brass ornament divider under the title. */
+.ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--color-brass);
+}
+.ornament::before,
+.ornament::after {
+  content: '';
+  height: 1px;
+  width: 110px;
+  background: linear-gradient(
+    to var(--dir, right),
+    transparent,
+    rgb(165 135 75 / 0.75)
+  );
+}
+.ornament::before {
+  --dir: right;
+}
+.ornament::after {
+  --dir: left;
+}
+
+/* abcjs draws its own SVG; keep it on paper and legible */
+.staff-holder svg {
+  background: transparent;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: white;
+  }
+  .print-area {
+    padding: 0;
+    margin: 0;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .print-area.plate::before {
+    display: none;
+  }
+  @page {
+    margin: 14mm;
+  }
+}
